@@ -1,0 +1,471 @@
+#install.packages("COVID19")
+
+#update dataset
+library(COVID19)
+library(tidyverse) 
+library(gridExtra) 
+library(dplyr)
+library(ggforce) 
+library(plotly)
+library(hrbrthemes)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(maps)
+library(viridis)
+library(lubridate)
+library(gghighlight)
+library(ggrepel)
+library(tidyr)
+library(ggpubr)
+library(caret)
+library(scales)
+library(data.table)
+library(magrittr) 
+library(lattice)
+
+#EDA
+
+data<-covid19( level = 1, start = "2019-01-01", end = Sys.Date(), vintage = FALSE, raw = FALSE, cache = TRUE)
+data<-data.frame(data)
+str(data)
+class(data)
+#data<-write.csv(data, "data.csv")
+#data<-as.data.frame(fread(file="C:/Users/Brikena Kokalari/Documents/data.csv"))
+covid<-subset(data, select = c("date", "deaths","confirmed","recovered",
+                               "administrative_area_level_1", "latitude", "longitude", "population", "stay_home_restrictions"))
+
+colnames(covid)[5] <- "country"
+colnames(covid)[6] <- "lat"
+colnames(covid)[7] <- "lng"
+colnames(covid)[8] <- "pop"
+
+
+
+## active  cases
+covid %<>% mutate(active = confirmed - deaths - recovered)
+## calulate daily cases
+covid %<>% arrange(country, date)
+## daily increases of confirmed,deaths,recovered and active cases
+
+n <- nrow(covid)
+day1 <- min(covid$date)
+covid %<>% mutate(d_confirmed = ifelse(date == day1, 0, confirmed - lag(confirmed, n=1)))
+covid %<>% mutate(d_deaths = ifelse(date == day1, 0, deaths - lag(deaths, n=1)))
+covid %<>% mutate(d_recovered = ifelse(date == day1, 0, recovered - lag(recovered, n=1)))
+covid %<>% mutate(d_active = ifelse(date == day1, 0, active - lag(active, n=1)))
+
+## set 0 to the increases on day1
+covid$d_confirmed <- ifelse(covid$d_confirmed  < 0, 0, covid$d_confirmed )
+covid$d_deaths<- ifelse(covid$d_deaths  < 0, 0, covid$d_deaths )
+covid$d_recovered <- ifelse(covid$d_recovered  < 0, 0, covid$d_recovered )
+covid$d_active <- ifelse(covid$d_active  < 0, 0, covid$d_active )
+
+################################### MAPS ##################################
+library(ggmap)
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(maps)
+library(viridis)
+library(maps)
+
+world <-  ggplot2::map_data("world")
+
+############# GLOBAL MAP ##################
+# cutoffs based on the number of cases
+mybreaks <- c(1, 100, 1000, 10000, 100000)
+
+w1 = filter(covid,date == "2020-05-17") %>% 
+  mutate(conf_per_pop=(confirmed/pop*1000000))%>%
+  group_by(country) 
+
+ggplot() +
+  borders("world", color = "gray", fill = "gray80")+
+  geom_polygon(data = world, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point(data=w1, aes(x=lng, y=lat, size=conf_per_pop, color=conf_per_pop),stroke=F, alpha=0.7) +
+  scale_size_continuous(name="Cases", trans="log", breaks=mybreaks, 
+                        labels = c("0-99", "100-999", "1.000-9.999", "10.000-99.999", "100.000+")) +
+  scale_alpha_continuous(name="Cases", trans="log", range=c(0.1, 0.9),breaks=mybreaks) +
+  scale_color_viridis_c(option="C",name="Cases", trans="log",breaks=mybreaks,
+                        labels = c("0-99", "100-999", "1.000-9.999", "10.000-99.999", "100.000+")) +
+  theme_void() + 
+  guides( colour = guide_legend()) +
+  labs(caption = ". Spread of covid-19 worldwhile per population 1M") +
+  theme(
+    legend.position = "bottom",
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#ffffff", color = NA), 
+    panel.background = element_rect(fill = "#ffffff", color = NA), 
+    legend.background = element_rect(fill = "#ffffff", color = NA)
+    
+  )
+
+################## EUROPE MAP ###############################
+
+# cutoffs based on the number of cases
+mybreaks <- c(1, 100, 1000, 10000, 100000)
+
+w1 = filter(covid,date == "2020-05-15") %>% 
+  mutate(conf_per_pop=(confirmed/pop*1000000))%>%
+  group_by(country) 
+
+ggplot() +
+  borders("world", color = "gray", fill = "gray80")+
+  geom_polygon(data = world, aes(x=long, y = lat, group = group), fill="grey", alpha=0.3) +
+  geom_point(data=w1, aes(x=lng, y=lat, size=conf_per_pop, color=conf_per_pop),stroke=F, alpha=0.7) +
+  scale_size_continuous(name="Cases", trans="log", breaks=mybreaks, 
+                        labels = c("0-99", "100-999", "1.000-9.999", "10.000-99.999", "100.000+")) +
+  scale_alpha_continuous(name="Cases", trans="log", range=c(0.1, 0.9),breaks=mybreaks) +
+  scale_color_viridis_c(option="C",name="Cases", trans="log",breaks=mybreaks,
+                        labels = c("0-99", "100-999", "1.000-9.999", "10.000-99.999", "100.000+")) +
+  theme_void() + coord_map( "bonne",
+                            lat0 = 0,
+                            xlim = c(-20, 40),
+                            ylim = c(35, 70))+
+  guides( colour = guide_legend()) +
+  labs(caption = "Spread of COVID-19 in Europe per population 1M ") +
+  theme(
+    legend.position = "bottom",
+    text = element_text(color = "#22211d"),
+    plot.background = element_rect(fill = "#ffffff", color = NA), 
+    panel.background = element_rect(fill = "#ffffff", color = NA), 
+    legend.background = element_rect(fill = "#ffffff", color = NA)
+  )
+
+############# Sorted Top 10 countries##########################
+
+Sorted1= filter(covid, covid$date==max(covid$date)) %>% 
+  group_by(country) %>% 
+  summarise(confirmed =  sum(confirmed, na.rm=T))
+
+
+Sorted1 = Sorted1[order(Sorted1$confirmed,decreasing = TRUE),]
+
+
+top10_cases = Sorted1[0:10,]
+top10_cases = top10_cases %>% mutate(rank = rank(-confirmed),
+                                     Value_lbl = paste0(" ",confirmed))
+
+s1<-ggplot(top10_cases, aes(rank, group = country, fill = as.factor(country), color = as.factor(country))) +
+  geom_tile(aes(y = confirmed/2, height = confirmed, width = 0.5), alpha = 0.6, color = 'light blue') +
+  geom_text(aes(y = 0, label = paste(country, " ")),size=4.5, vjust = 2, hjust = 1) +
+  geom_text(aes(y=confirmed,label = Value_lbl, hjust=0),size=4) +
+  coord_flip(clip = "off", expand = TRUE) +
+  scale_x_reverse() +
+  guides(color = FALSE, fill = FALSE) +
+  labs(title='Top 10 affected Countries',
+       y="Total confirmed cases on May 17", x="Country")+
+  theme_ft_rc() 
+
+s1
+
+
+
+Sorted2 = filter(covid, covid$date==max(covid$date)) %>% 
+  mutate(conf_per_pop=(confirmed/pop)*1000)%>% 
+  group_by(country) %>% 
+  summarise(confirmed =sum(conf_per_pop))
+
+
+Sorted2[,2] <-round(Sorted2[,2],2)
+Sorted2 = Sorted2[order(Sorted2$confirmed,decreasing = TRUE),]
+
+top10_cpp = Sorted2[0:10,]
+top10_cpp = top10_cpp %>% mutate(rank = rank(-confirmed),
+                                 Value_lbl = paste0(" ",confirmed))
+
+s2<-ggplot(top10_cpp, aes(rank, group = country, fill = as.factor(country), color = as.factor(country))) +
+  geom_tile(aes(y = confirmed/2, height = confirmed, width = 0.5), alpha = 0.6, color = 'light blue') +
+  geom_text(aes(y = 0, label = paste(country, " ")),size=4, vjust = 2, hjust = 1) +
+  geom_text(aes(y=confirmed,label = Value_lbl, hjust=0),size=4) +
+  coord_flip(clip = "off", expand = TRUE) +
+  scale_x_reverse() +
+  guides(color = FALSE, fill = FALSE) +
+  labs(title='Top 10 affected Countries with regard to population',
+       y="Total confirmed cases on May 17 per 1K", x="Country")+
+  theme_ft_rc() 
+
+s2
+grid.arrange(s1, s2 ) 
+
+###################### GREECE AND GLOBAL ############################
+################  CUMULATIVE AND DAILY CASES   ######################
+
+
+#Greece cumulative
+gr1 = covid  %>% group_by(date) %>%
+  filter(country == "Greece") %>% 
+  summarise(confirmed =  sum(confirmed) , deaths = sum(deaths), recovered = sum(recovered), active = sum(active)) %>% 
+  gather(key = Cases, value = Count, c(confirmed,deaths,recovered, active))
+
+grplot1<-ggplot(gr1, aes(x= date, y= Count )) +
+  geom_line(aes(color = Cases))+geom_point(aes(color = Cases)) +
+  scale_color_manual(values = c("blue","black","green", "red")) +
+  labs(x="Timeline", y="Number of Cases") +
+  ggtitle("Cumulative COVID-19 in Greece on May 17")+
+  theme_ft_rc()  
+grplot1
+
+#Greece daily cases
+gr2 = filter(covid,country == "Greece") %>% group_by(date) %>% 
+  summarise(confirmed =  sum(d_confirmed) , deaths = sum(d_deaths), recovered = sum(d_recovered), active = sum(d_active)) %>% 
+  gather(key = Cases, value = Count, c(confirmed,deaths,recovered, active))
+
+grplot2<-ggplot(gr2, aes(x= date, y= Count )) +
+  geom_line(aes(color = Cases))+geom_point(aes(color = Cases)) +
+  scale_x_date(date_breaks = "1 month", date_labels =  "%b %Y") +
+  scale_color_manual(values = c("blue","black","green", "red")) +
+  labs(x="Timeline", y="Number of Cases") +
+  ggtitle("Daily COVID-19 in Greece on May 17")+
+  theme_ft_rc()  
+grplot2
+
+#Global cumulative
+gl1 = covid  %>% group_by(date) %>% 
+  summarise(confirmed =  mean(confirmed) , deaths = mean(deaths), recovered = mean(recovered), active = mean(active)) %>% 
+  gather(key = Cases, value = Count, c(confirmed,deaths,recovered, active))
+
+glplot1<-ggplot(gl1, aes(x= date, y= Count )) +
+  geom_line(aes(color = Cases))+geom_point(aes(color = Cases)) +
+  scale_color_manual(values = c("blue","black","green", "red")) +
+  labs(x="Timeline", y="Number of Cases") +
+  ggtitle("Cumulative COVID-19 Globaly on May 17")+
+  theme_ft_rc()  
+glplot1
+
+
+#global daily cases
+gl2 = covid %>% group_by(date) %>% 
+  summarise(confirmed =  mean(d_confirmed, na.rm=T) , deaths = mean(d_deaths,na.rm=T), 
+            recovered = mean(d_recovered,na.rm=T), active = mean(d_active,na.rm=T))%>% 
+  gather(key = Cases, value = Count, c(confirmed,deaths,recovered, active))
+
+glplot2<-ggplot(gl2, aes(x= date, y= Count )) +
+  geom_line(aes(color = Cases))+geom_point(aes(color = Cases)) +
+  scale_color_manual(values = c("blue","black","green", "red")) +
+  labs(x="Timeline", y="Number of Cases") +
+  ggtitle("Daily COVID-19 Globaly on May 17")+
+  theme_ft_rc()  
+
+#cumulative greece and global
+grid.arrange(glplot1, grplot1) 
+#daily greece and global
+grid.arrange(glplot2, grplot2 ) 
+
+############ BOX PLOT ########################
+
+total_agg1 = filter(covid, covid$date==max(covid$date)) %>% 
+  group_by(date, country) %>% 
+  summarise(Confirmed =  sum(confirmed, na.rm=T), 
+            Recovered = sum(recovered,na.rm=T), Active = sum(active,na.rm=T))%>% 
+  gather(key = Cases, value = Count, c(Confirmed,Recovered, Active))
+
+total_agg1$date <- NULL
+greece<-total_agg1[total_agg1$country == 'Greece',]
+
+ggplot(total_agg1,  aes(x=Cases, y=Count, color=Cases)) +
+  geom_boxplot() +
+  geom_point(data = greece, aes(x=Cases, y=Count, size="Greece",  color=country) , color="red", size=2)+
+  theme_ft_rc() +
+  theme( legend.position="none", plot.title = element_text(size=11)) +
+  ggtitle("Boxblots of  Active, Confirmed & Recovered Cases World Wide VS Greece") +
+  ylab("Number of Cases")+
+  xlab("")+
+  ylim(1000 , 100000)
+
+
+
+######### Deaths & Infections#### 
+#deaths per population
+
+covid$deathrate1M <- covid$deaths / covid$pop*1000000
+
+#infection per population 
+
+covid$infect_per_pop1M <- covid$confirmed / covid$pop*1000000
+#recovered per population 
+
+covid$recov_per_pop1M <- covid$recovered / covid$pop*1000000
+
+#######  Balkans ##############
+
+selected<-c("Albania", "Bosnia and Herzegovina", "Bulgaria", "Greece",
+            "Kosovo", "Croatia","Romania","Montenegro" ,"Romania","Serbia",
+            "Slovenia", "Turkey")
+
+balkans<-covid[covid$country %in% selected, ]
+
+library(directlabels)
+library(wesanderson)
+
+p<-ggplot(balkans, aes(x=date, y=infect_per_pop1M, group=country, color=country))+geom_point()
+p<-p+scale_colour_manual(values = rainbow(11))
+p<-p+labs(title="Infections Rate per 1 Million in Balkan", subtitle="Greece VS Balkan countries", x="Date", y="Infections Per 1M")
+p<-p+geom_dl(aes(label=country), method = "smart.grid")
+Balk1<-p+theme_ft_rc()
+Balk1
+
+
+
+balk2 <- balkans %>% 
+  filter(date == "2020-05-17") %>%
+  group_by(country) %>%
+  summarise(total_cases = sum(recov_per_pop1M)%>% round(1))%>%
+  arrange(-total_cases) %>%
+  mutate(parents = "Recovered per 1 Million Population") %>%
+  ungroup()  
+
+
+
+library(plotly)
+Balk2<-plot_ly(data = balk2,
+               type= "treemap",
+               values = ~total_cases,
+               labels= ~ country,
+               parents=  ~parents,
+               domain = list(column=0),
+               name = "Infections per 1 Million Population",
+               textinfo="label+value+percent parent")
+
+Balk2
+
+
+
+####################  GIF  ###########################
+
+library(gapminder)
+library(gganimate)
+
+## standard ggplot2
+anim<-ggplot(balkans, aes(x=date, y=log(deathrate1M), colour=country, size = pop)) +
+  geom_point(alpha = 0.7, show.legend = TRUE) +
+  scale_colour_manual(values = rainbow(11)) +
+  scale_size(range = c(1, 15)) +
+  scale_y_log10() +
+  theme_ft_rc()+
+  # change labels
+  labs(size = "Popoulation)",
+       color = "Country") +
+  # Here comes the gganimate specific bits
+  labs(title = 'Year: {frame_time}', x = 'Date', y = 'Log Cumulative confirmed cases of COVID-19') +
+  transition_time(date) +
+  ease_aes('sine-in-out')
+
+
+animate(anim, fps=10, duration= 20, width=800, height=600)
+
+anim_save("covid19_death_rate_in_Balcans.gif")
+
+
+
+
+######### dumbbell PLOT ####
+
+library(ggalt)
+
+df= filter(balkans, balkans$date==max(balkans$date)) %>% 
+  group_by(country) %>% 
+  summarise(active =  sum(active, na.rm=T), deaths =  sum(deaths, na.rm=T))
+df<-as.data.frame(df)
+df %<>% mutate(diffad = active - deaths)
+
+df %>% arrange(deaths)
+ggplot(df, aes(x=deaths, xend=active, y=reorder(country, diffad))) + 
+  geom_dumbbell(color="purple", 
+                size_x=3.5, 
+                size_xend = 3.5,
+                colour_x="red", 
+                colour_xend = "blue")+
+  theme_ft_rc() +
+  labs(x=NULL, y=NULL, 
+       title="Deaths and Recover Disparity", 
+       subtitle="Difference between total Deaths(Red) and Actives(Blue)")+
+  geom_text(color="yellow", size=3.5, hjust=+2,
+            aes(x=deaths, label=deaths))+
+  geom_text(aes(x=active, label=active), 
+            color="yellow", size=3.5, hjust=-0.5)
+
+###############  scatter plot   #####
+
+ggplot(balkans %>% filter(date == "2020-05-17"), aes(x = ((confirmed/pop)*100000),
+                                                     y = ((deaths/pop)*100000), group=country, col=country)) + 
+  geom_point(size = 3.5) + 
+  labs(title = "Total deaths and confirmed cases per 100k, by Country", 
+       x = "Confirmed", 
+       y = "Deaths") + 
+  theme(legend.position = "bottom")+
+  theme_grey()
+
+#########################  Countries with same population  ##########################
+
+greecepop = filter(covid, covid$date==max(covid$date)) %>% 
+  group_by(pop, country) %>% 
+  summarise()
+
+
+greecepop = greecepop[order(greecepop$pop,decreasing = TRUE),]
+
+outer(which(greecepop$country == "Greece"), -2:2, `+`)
+
+library(magrittr) # piping used for clarity
+rn <- outer(which(greecepop$country == "Greece"), -2:2, `+`) %>% 
+  as.vector() %>% 
+  unique() %>% 
+  Filter(function(x) x[1 <= x & x <= nrow(greecepop)], .)
+
+rn
+
+greecepop[rn, ]
+
+selected1<-c("Haiti",  "Czech Republic", "Greece", "Dominican Republic","South Sudan")
+
+simpop<-covid[covid$country %in% selected1, ]
+
+
+###trelis
+
+simpop %<>% mutate(posotmetav = ifelse(date == day1, 0, (d_confirmed)/lag(d_confirmed, n=1)-1))
+simpop$posotmetav[is.nan(simpop$posotmetav)]<-0
+simpop$posotmetav[is.infinite(simpop$posotmetav)]<-1
+
+
+simpop$dc_per_pop1M <- simpop$d_confirmed / simpop$pop*1000000
+
+
+library(plyr)
+
+simpop$stay_home_restrictions<-as.factor(simpop$stay_home_restrictions)
+simpop$stay_home_restrictions<-revalue(simpop$stay_home_restrictions, c("0" ="No measures", "1" = "recommend not leaving house",
+                                                                        "2"="require not leaving house with exceptions", "3"="Require not leaving house 
+with minimal exceptions"))
+
+##daily change
+ggplot(simpop, aes(x = date, y = dc_per_pop1M, group=stay_home_restrictions, col=stay_home_restrictions)) + 
+  geom_point(size = 1.5) + 
+  geom_line(size = 0.5) + 
+  facet_grid(country ~ ., scales = "free_y") + 
+  scale_x_date(breaks = '1 month',
+               labels = date_format("%b"),
+               limits = c(as.Date('2020-03-01'), as.Date('2020-05-17')))+
+  labs(title = "Daily confirmed cases per 1M, by Country", 
+       x = "Month", 
+       y = "Daily cases per pop1M") + 
+  theme(legend.position = "bottom")
+
+
+## percentage change
+
+ggplot(simpop, aes(x = date, y = posotmetav, group=stay_home_restrictions, col=stay_home_restrictions)) + 
+  geom_point(size = 1.5) + 
+  geom_line(size = 0.5) + 
+  facet_grid(country ~ ., scales = "free_y") + 
+  scale_x_date(breaks = '1 month',
+               labels = date_format("%b"),
+               limits = c(as.Date('2020-03-01'), as.Date('2020-05-17')))+
+  labs(title = "Percentage change of daily confirmed cases per 1M, by Country", 
+       x = "Month", 
+       y = "Percentage change of daily confirmed cases") + 
+  theme(legend.position = "bottom")
+
+
